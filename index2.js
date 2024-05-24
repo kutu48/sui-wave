@@ -204,8 +204,8 @@ const executeTx = async (e, t, n, s) => {
 
 (async () => {
 
-    const mnemonicsData = fs.readFileSync('path/to/your/mnemonics.json', 'utf-8');
-    const mnemonics = JSON.parse(mnemonicsData);
+    const mnemonicsPath = path.join(__dirname, 'mnemonics.json');
+    const mnemonics = JSON.parse(fs.readFileSync(mnemonicsPath, 'utf8'));
 
     const SUI_MNEMONIC = readlineSync.keyInSelect(mnemonics, 'Select your mnemonic / seed phrase: ');
     if (SUI_MNEMONIC === -1) {
