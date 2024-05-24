@@ -23,6 +23,7 @@ function calculateBalance(totalBalance, divider) {
     return Number(totalBalance) / Math.pow(10, divider);
 };
 
+
 function reverseCalculateBalance(balance, multiplier) {
     return balance * Math.pow(10, multiplier);
 };
@@ -83,32 +84,29 @@ const checkCanUpgrade = async (suiAddress, coinType, upgradePrice, transactionBu
     }
 };
 
+
 const calculateFinishingInfo = (data, state) => {
-    if (!data || !data.content || !data.content.fields)
+    if (!data)
         return {
             timeToClaim: 0,
             unClaimedAmount: 0,
             progress: 0
         };
-    if (!state || !state.content || !state.content.fields)
+    if (!state)
         return {
             timeToClaim: 0,
-            unClaimedAmount: calculateBalance(data.content.fields.initReward, 9),
+            unClaimedAmount: calculateBalance(data.initReward, 9),
             progress: 100
         };
-
-    const boatLevel = data.content.fields.boatLevel[state.content.fields.boat];
-    const meshLevel = data.content.fields.meshLevel[state.content.fields.mesh];
-    const fishTypeLevel = data.content.fields.fishTypeLevel[state.content.fields.seafood];
-    const currentTime = new Date().getTime();
-
-    let timeSinceLastClaim = new BigNumber(0);
-    const fishingTime = boatLevel.fishing_time * 60 * 60 * 1e3 / 1e4;
-
-    if (new BigNumber(state.content.fields.last_claim).plus(fishingTime).gt(currentTime)) {
-        timeSinceLastClaim = new BigNumber(state.content.fields.last_claim).plus(fishingTime).minus(currentTime);
+    const boatLevel = data.boatLevel[state.boat],
+        meshLevel = data.meshLevel[state.mesh],
+        fishTypeLevel = data.fishTypeLevel[state.seafood],
+        currentTime = new Date().getTime();
+    let timeSinceLastClaim = new BigNumber(0),
+        fishingTime = boatLevel.fishing_time * 60 * 60 * 1e3 / 1e4;
+    if (new BigNumber(state.last_claim).plus(fishingTime).gt(currentTime)) {
+        timeSinceLastClaim = new BigNumber(state.last_claim).plus(fishingTime).minus(currentTime);
     }
-
     let estimatedFishingAmount = new BigNumber(fishingTime).minus(timeSinceLastClaim)
         .div(fishingTime)
         .times(boatLevel.fishing_time)
@@ -117,17 +115,15 @@ const calculateFinishingInfo = (data, state) => {
         .div(1e4)
         .times(fishTypeLevel.rate)
         .div(1e4);
-
-    if (state.content.fields.special_boost) {
-        let specialBoost = data.content.fields.specialBoost[state.content.fields.special_boost];
+    if (state.special_boost) {
+        let specialBoost = data.specialBoost[state.special_boost];
         if (specialBoost.type == 0 && currentTime >= specialBoost.start_time && currentTime <= specialBoost.start_time + specialBoost.duration) {
             estimatedFishingAmount = estimatedFishingAmount.times(specialBoost.rate).div(1e4);
         }
-        if (specialBoost.type == 1 && currentTime >= state.content.fields.special_boost_start_time && currentTime <= state.content.fields.special_boost_start_time + specialBoost.duration) {
+        if (specialBoost.type == 1 && currentTime >= state.special_boost_start_time && currentTime <= state.special_boost_start_time + specialBoost.duration) {
             estimatedFishingAmount = estimatedFishingAmount.times(specialBoost.rate).div(1e4);
         }
     }
-
     return {
         timeToClaim: timeSinceLastClaim.toNumber(),
         unClaimedAmount: estimatedFishingAmount.toFixed(5),
@@ -135,25 +131,40 @@ const calculateFinishingInfo = (data, state) => {
     };
 };
 
+
 const makeClaimTx = (client, keypair, suiAddress) => new Promise(async (resolve, reject) => {
+
     try {
         const gasBudget = '10000000';
 
-        const txb = new TransactionBlock(); // TransactionBlock is created
+        const txb = new TransactionBlock();
         txb.moveCall({
             target: `${CLAIM_PACKAGE_ID}::game::claim`,
             arguments: [txb.object(CLAIM_OBJECT_ID), txb.object('0x6')]
         });
         txb.setGasBudget(gasBudget);
-        txb.setSender(suiAddress); // Sender is set
-        // Code to sign and resolve the promise...
+        txb.setSender(suiAddress);
+
+        const {
+            bytes,
+            signature
+        } = await txb.sign({
+            client,
+            signer: keypair
+        });
+
+        resolve({
+            bytes,
+            signature
+        })
     } catch (error) {
-        reject(error);
+        reject(error)
     }
 });
 
 
 const sendTransaction = (client, bytes, signature) => new Promise(async (resolve, reject) => {
+
     try {
         await client.dryRunTransactionBlock({
             transactionBlock: bytes
@@ -180,8 +191,6 @@ const executeTx = async (e, t, n, s) => {
         onlyTransactionKind: n,
         signer: t
     });
-    // Set the sender address in the transaction block
-    r.setSender(t.getPublicKey().toSuiAddress());
     await _client.dryRunTransactionBlock({
         transactionBlock: r
     });
@@ -200,17 +209,17 @@ const executeTx = async (e, t, n, s) => {
 
 
 (async () => {
+
     const SUI_MNEMONIC = readlineSync.question('Input your mnemonic / seed pharse : ');
     if (!SUI_MNEMONIC) {
-        console.log(chalk.red('Please input the correct answer.'));
-        process.exit(0);
+        console.log(chalk.red('Please input the correct answer.'))
+        process.exit(0); 
     }
 
-    // Input aktivasi auto upgrade
     const isUpgradeAnswer = readlineSync.question('activate auto upgrade ( y / n ) : ');
-    if (!['y', 'n'].includes(isUpgradeAnswer)) {
-        console.log(chalk.red('Please input the correct answer.'));
-        process.exit(0);
+    if(!['y', 'n'].includes(isUpgradeAnswer)){
+        console.log(chalk.red('Please input the correct answer.'))
+        process.exit(0); 
     }
 
     let isUpgradeActive = false;
@@ -220,14 +229,13 @@ const executeTx = async (e, t, n, s) => {
         autoUpgradeStatus = 'on';
     }
 
-    // Input aktivasi auto transfer
     const isAutoSendAnswer = readlineSync.question('activate auto transfer ( y / n ) : ');
-    if (!['y', 'n'].includes(isAutoSendAnswer)) {
-        console.log(chalk.red('Please input the correct answer.'));
-        process.exit(0);
+    if(!['y', 'n'].includes(isAutoSendAnswer)){
+        console.log(chalk.red('Please input the correct answer.'))
+        process.exit(0); 
     }
 
-    let isAutoTransfer = false;
+    let isAutoTransfer = false
     let amountToAutoTransfer = 0;
     let receipentAutoTransfer = '';
     let autoTransferStatus = 'off';
@@ -235,16 +243,16 @@ const executeTx = async (e, t, n, s) => {
         isAutoTransfer = true;
         amountToAutoTransfer = readlineSync.question('input nominal ocean to auto transfer : ');
         if (isNaN(parseInt(amountToAutoTransfer))) {
-            console.log(chalk.red('Please input the correct answer.'));
-            process.exit(0);
+            console.log(chalk.red('Please input the correct answer.'))
+            process.exit(0); 
         }
 
         amountToAutoTransfer = parseInt(amountToAutoTransfer);
 
         receipentAutoTransfer = readlineSync.question('input receipent address : ');
         if (!receipentAutoTransfer) {
-            console.log(chalk.red('Please input the correct answer.'));
-            process.exit(0);
+            console.log(chalk.red('Please input the correct answer.'))
+            process.exit(0); 
         }
 
         autoTransferStatus = 'on';
@@ -257,6 +265,7 @@ const executeTx = async (e, t, n, s) => {
     const gameInfoData = fs.readFileSync('./gameInfo.json', 'utf-8');
     const gasBudget = '10000000';
 
+
     const secret_key_mnemonics = SUI_MNEMONIC;
     const keypair = Ed25519Keypair.deriveKeypair(secret_key_mnemonics);
     const suiAddress = keypair.getPublicKey().toSuiAddress();
@@ -265,7 +274,7 @@ const executeTx = async (e, t, n, s) => {
         url: getFullnodeUrl('mainnet'),
     });
 
-    // Dapatkan saldo ocean
+    // get ocean balance
     const oceanBalanceResult = await client.getBalance({
         owner: suiAddress,
         coinType: `${OCEAN_PACKAGE_ID}::ocean::OCEAN`
@@ -273,40 +282,40 @@ const executeTx = async (e, t, n, s) => {
 
     let realOceanBalance = await calculateBalance(oceanBalanceResult.totalBalance, 9);
 
-    // Aktivasi auto upgrade
+
     if (isUpgradeActive) {
-        // Dapatkan info klaim pengguna
-        const userClaimInfo = await client.getDynamicFieldObject({
-            parentId: CLAIM_OBJECT_ID,
-            name: {
-                type: 'address',
-                value: suiAddress
-            }
-        });
-
-        const dataUserClaimInfo = userClaimInfo.data.content.fields;
-        const resultWhenClaim = await calculateFinishingInfo(JSON.parse(gameInfoData), dataUserClaimInfo);
-
-        // Coba upgrade di percobaan pertama
-        let fieldToUpdate = '';
-        let levelType = '';
-        let upgradeTo = 0;
-        if (dataUserClaimInfo.mesh == dataUserClaimInfo.boat) {
-            fieldToUpdate = 'upgrade_mesh';
-            levelType = 'meshLevel';
-            upgradeTo = dataUserClaimInfo.mesh;
-        } else if (dataUserClaimInfo.mesh > dataUserClaimInfo.boat) {
-            fieldToUpdate = 'upgrade_boat';
-            levelType = 'boatLevel';
-            upgradeTo = dataUserClaimInfo.boat;
-        } else if (dataUserClaimInfo.boat > dataUserClaimInfo.mesh) {
-            fieldToUpdate = 'upgrade_mesh';
-            levelType = 'meshLevel';
-            upgradeTo = dataUserClaimInfo.mesh;
+        // get user claim info
+    const userClaimInfo = await client.getDynamicFieldObject({
+        parentId: CLAIM_OBJECT_ID,
+        name: {
+            type: 'address',
+            value: suiAddress
         }
+    });
 
-        twisters.put(suiAddress, {
-            text: `
+    const dataUserClaimInfo = userClaimInfo.data.content.fields;
+    const resultWhenClaim = await calculateFinishingInfo(JSON.parse(gameInfoData), dataUserClaimInfo);
+
+    // try to upgrade in first run
+    let fieldToUpdate = '';
+    let levelType = '';
+    let upgradeTo = 0;
+    if (dataUserClaimInfo.mesh == dataUserClaimInfo.boat) {
+        fieldToUpdate = 'upgrade_mesh';
+        levelType = 'meshLevel';
+        upgradeTo = dataUserClaimInfo.mesh
+    } else if (dataUserClaimInfo.mesh > dataUserClaimInfo.boat) {
+        fieldToUpdate = 'upgrade_boat';
+        levelType = 'boatLevel';
+        upgradeTo = dataUserClaimInfo.boat
+    } else if (dataUserClaimInfo.boat > dataUserClaimInfo.mesh) {
+        fieldToUpdate = 'upgrade_mesh';
+        levelType = 'meshLevel';
+        upgradeTo = dataUserClaimInfo.mesh
+    }
+
+    twisters.put(suiAddress, {
+        text: `
 Sui Address : ${suiAddress}
 Current Ocean Balance : ${realOceanBalance}
 Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
@@ -317,17 +326,18 @@ Progress :  ${resultWhenClaim.progress}
 Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
 Status : ${chalk.yellow(`Trying to upgrade ${levelType} in first run.`)}
         `,
-        });
+    });
 
-        await delay(5000);
+    await delay(5000);
 
-        const upgradeTxb = new TransactionBlock();
-        if (fieldToUpdate && levelType) {
-            const infoUpgradeData = JSON.parse(gameInfoData)[levelType][upgradeTo];
-            const canUpgradeResult = await checkCanUpgrade(suiAddress, `${OCEAN_PACKAGE_ID}::ocean::OCEAN`, infoUpgradeData.price_upgrade, upgradeTxb);
-            if (!canUpgradeResult) {
-                twisters.put(suiAddress, {
-                    text: `
+
+    const upgradeTxb = new TransactionBlock();
+    if (fieldToUpdate && levelType) {
+        const infoUpgradeData = JSON.parse(gameInfoData)[levelType][upgradeTo];
+        const canUpgradeResult = await checkCanUpgrade(suiAddress, `${OCEAN_PACKAGE_ID}::ocean::OCEAN`, infoUpgradeData.price_upgrade, upgradeTxb);
+        if (!canUpgradeResult) {
+            twisters.put(suiAddress, {
+                text: `
 Sui Address : ${suiAddress}
 Current Ocean Balance : ${realOceanBalance}
 Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
@@ -337,69 +347,29 @@ Boat Level : ${dataUserClaimInfo.boat}
 Progress :  ${resultWhenClaim.progress}
 Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
 Status : ${chalk.red(`Upgrade ${levelType} failed, Insufficient amount to upgrade!`)}
-                    `,
-                });
-            } else {
-                upgradeTxb.moveCall({
-                    target: `${CLAIM_PACKAGE_ID}::game::${fieldToUpdate}`,
-                    arguments: [upgradeTxb.object(CLAIM_OBJECT_ID), canUpgradeResult]
-                });
-                upgradeTxb.setGasBudget(gasBudget);
-                upgradeTxb.setSender(suiAddress);
-
-                const txResult = await executeTx(upgradeTxb, keypair, false)
-                if (txResult === 'success') {
-                    twisters.put(suiAddress, {
-                        text: `
-Sui Address : ${suiAddress}
-Current Ocean Balance : ${realOceanBalance}
-Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
-Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
-Mesh Level : ${dataUserClaimInfo.mesh}
-Boat Level : ${dataUserClaimInfo.boat}
-Progress :  ${resultWhenClaim.progress}
-Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
-Status : ${chalk.green(`Upgrade ${levelType} Success.`)}
-                        `,
-                    });
-                } else {
-                    twisters.put(suiAddress, {
-                        text: `
-Sui Address : ${suiAddress}
-Current Ocean Balance : ${realOceanBalance}
-Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
-Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
-Mesh Level : ${dataUserClaimInfo.mesh}
-Boat Level : ${dataUserClaimInfo.boat}
-Progress :  ${resultWhenClaim.progress}
-Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
-Status : ${chalk.red(`Upgrade ${levelType} failed. Reason: ${txResult}`)}
-                        `,
-                    });
-                }
-            }
-        }
-    }
-
-    // Aktivasi auto transfer
-    if (isAutoTransfer) {
-        if (realOceanBalance >= amountToAutoTransfer) {
-            const autoTxb = new TransactionBlock();
-            autoTxb.moveCall({
-                target: `${CLAIM_PACKAGE_ID}::game::auto_transfer`,
-                arguments: [autoTxb.object(CLAIM_OBJECT_ID), autoTxb.string(receipentAutoTransfer), autoTxb.u64(amountToAutoTransfer)]
+                `,
             });
-            autoTxb.setGasBudget(gasBudget);
-            autoTxb.setSender(suiAddress);
-
-            const txResult = await executeTx(autoTxb, keypair, false)
+        } else {
+            upgradeTxb.moveCall({
+                target: `${CLAIM_PACKAGE_ID}::game::${fieldToUpdate}`,
+                arguments: [upgradeTxb.object(CLAIM_OBJECT_ID), canUpgradeResult]
+            });
+            upgradeTxb.setGasBudget(gasBudget);
+            upgradeTxb.setSender(suiAddress);
+    
+            const txResult = await executeTx(upgradeTxb, keypair, false)
             if (txResult === 'success') {
                 twisters.put(suiAddress, {
                     text: `
 Sui Address : ${suiAddress}
 Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
 Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
-Status : ${chalk.green(`Auto Transfer Success.`)}
+Status : ${chalk.green(`Upgrade ${levelType} success!`)}
                     `,
                 });
             } else {
@@ -407,20 +377,339 @@ Status : ${chalk.green(`Auto Transfer Success.`)}
                     text: `
 Sui Address : ${suiAddress}
 Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
 Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
-Status : ${chalk.red(`Auto Transfer failed. Reason: ${txResult}`)}
+Status : ${chalk.red(`Upgrade ${levelType} failed, try next time!`)}
                     `,
                 });
             }
-        } else {
-            twisters.put(suiAddress, {
-                text: `
-Sui Address : ${suiAddress}
-Current Ocean Balance : ${realOceanBalance}
-Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
-Status : ${chalk.red('Insufficient balance for auto transfer.')}
-                `,
-            });
         }
     }
+
+    await delay(5000);
+    }
+    
+
+    while (true) {
+
+        try {
+
+            // get user claim info
+            const userClaimInfo = await client.getDynamicFieldObject({
+                parentId: CLAIM_OBJECT_ID,
+                name: {
+                    type: 'address',
+                    value: suiAddress
+                }
+            });
+
+            const dataUserClaimInfo = userClaimInfo.data.content.fields;
+            const resultWhenClaim = await calculateFinishingInfo(JSON.parse(gameInfoData), dataUserClaimInfo);
+
+
+
+            if (parseFloat(resultWhenClaim.progress) >= 100) {
+                const oceanBalanceResult = await client.getBalance({
+                    owner: suiAddress,
+                    coinType: OCEAN_COIN_TYPE
+                });
+
+                realOceanBalance = await calculateBalance(oceanBalanceResult.totalBalance, 9);
+
+                twisters.put(suiAddress, {
+                    text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.yellow('Claiming...')}
+        `,
+                });
+                try {
+                    // claim transaction
+                    const {
+                        bytes,
+                        signature
+                    } = await makeClaimTx(client, keypair, suiAddress);
+                    const txResult = await sendTransaction(client, bytes, signature);
+                    if (txResult.effects.status.status === 'success') {
+                        const oceanBalanceResult = await client.getBalance({
+                            owner: suiAddress,
+                            coinType: OCEAN_COIN_TYPE
+                        });
+        
+                        realOceanBalance = await calculateBalance(oceanBalanceResult.totalBalance, 9);
+        
+                        twisters.put(suiAddress, {
+                            text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.green('Claim Success.')}
+                `,
+                        });
+                        await delay(5000);
+
+                        if (isAutoTransfer) {
+                            twisters.put(suiAddress, {
+                                text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.yellow(`Auto transfer activated, try to transfer ${amountToAutoTransfer}`)}
+                    `,
+                            });
+
+                            if (parseInt(realOceanBalance) >= parseInt(amountToAutoTransfer)) {
+                                const amountToSendResult = reverseCalculateBalance(amountToAutoTransfer, 9);
+
+                                const txbTfOcean = new TransactionBlock();
+                                const [coin] = await getCoinOfValue(
+                                    client,
+                                    txbTfOcean,
+                                    suiAddress,
+                                    OCEAN_COIN_TYPE,
+                                    amountToSendResult,
+                                );
+                                txbTfOcean.transferObjects([coin], txbTfOcean.pure(receipentAutoTransfer));
+                                txbTfOcean.setGasBudget(gasBudget);
+                                txbTfOcean.setSender(suiAddress);
+
+                                const {
+                                    bytes,
+                                    signature
+                                } = await txbTfOcean.sign({
+                                    client,
+                                    signer: keypair
+                                });
+                                const txTfResult = await sendTransaction(client, bytes, signature);
+                                if (txTfResult.effects.status.status === 'success') {
+                                    const oceanBalanceResult = await client.getBalance({
+                                        owner: suiAddress,
+                                        coinType: OCEAN_COIN_TYPE
+                                    });
+                    
+                                    realOceanBalance = await calculateBalance(oceanBalanceResult.totalBalance, 9);
+
+                                    twisters.put(suiAddress, {
+                                        text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.yellow(`Auto transfer succes, please check your account.`)}
+                            `,
+                                    });
+                                }else{
+                                    twisters.put(suiAddress, {
+                                        text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red(`Auto transfer failed, try next time.`)}
+                            `,
+                                    });
+                                }
+                                
+                            }else{
+                                twisters.put(suiAddress, {
+                                    text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red(`Transfer failed, Insufficient amount off balance!`)}
+                        `,
+                                });
+                            }
+                        }
+
+                        await delay(5000);
+
+                        
+
+
+                        if (isUpgradeActive) {
+                            let fieldToUpdate = '';
+                        let levelType = '';
+                        let upgradeTo = 0;
+                        if (dataUserClaimInfo.mesh == dataUserClaimInfo.boat) {
+                            fieldToUpdate = 'upgrade_mesh';
+                            levelType = 'meshLevel';
+                            upgradeTo = dataUserClaimInfo.mesh
+                        } else if (dataUserClaimInfo.mesh > dataUserClaimInfo.boat) {
+                            fieldToUpdate = 'upgrade_boat';
+                            levelType = 'boatLevel';
+                            upgradeTo = dataUserClaimInfo.boat
+                        } else if (dataUserClaimInfo.boat > dataUserClaimInfo.mesh) {
+                            fieldToUpdate = 'upgrade_mesh';
+                            levelType = 'meshLevel';
+                            upgradeTo = dataUserClaimInfo.mesh
+                        }
+
+                        twisters.put(suiAddress, {
+                            text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.yellow(`Trying to upgrade ${levelType}`)}
+                `,
+                        });
+
+                        await delay(5000);
+
+                        const upgradeTxb = new TransactionBlock();
+                        if (fieldToUpdate && levelType) {
+                            const infoUpgradeData = JSON.parse(gameInfoData)[levelType][upgradeTo];
+                            const canUpgradeResult = await checkCanUpgrade(suiAddress, `${OCEAN_PACKAGE_ID}::ocean::OCEAN`, infoUpgradeData.price_upgrade, upgradeTxb);
+                            if (!canUpgradeResult) {
+                                twisters.put(suiAddress, {
+                                    text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red(`Upgrade ${levelType} failed, Insufficient amount to upgrade!`)}
+                        `,
+                                });
+                            } else {
+                                
+
+                                upgradeTxb.moveCall({
+                                    target: `${CLAIM_PACKAGE_ID}::game::${fieldToUpdate}`,
+                                    arguments: [upgradeTxb.object(CLAIM_OBJECT_ID), canUpgradeResult]
+                                });
+                                upgradeTxb.setGasBudget(gasBudget);
+                                upgradeTxb.setSender(suiAddress);
+                        
+                                const txResult = await executeTx(upgradeTxb, keypair, false)
+                                if (txResult === 'success') {
+                                    twisters.put(suiAddress, {
+                                        text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.green(`Upgrade ${levelType} success!`)}
+                            `,
+                                    });
+                                } else {
+                                    twisters.put(suiAddress, {
+                                        text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red(`Upgrade ${levelType} failed, try next time!`)}
+                            `,
+                                    });
+                                }
+                            }
+                        }
+
+                        await delay(5000);
+                        }
+                        
+
+                    } else {
+                        twisters.put(suiAddress, {
+                            text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red('Claim Error, try again...')}
+                `,
+                        });
+                    }
+                } catch (error) {
+                    twisters.put(suiAddress, {
+                        text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.red('Claim Error, try again...')}
+            `,
+                    });
+                }
+            } else {
+                twisters.put(suiAddress, {
+                    text: `
+Sui Address : ${suiAddress}
+Current Ocean Balance : ${realOceanBalance}
+Last Claim : ${new Date(parseInt(dataUserClaimInfo.last_claim))}
+Unclaimed Ocean : ${resultWhenClaim.unClaimedAmount}
+Mesh Level : ${dataUserClaimInfo.mesh}
+Boat Level : ${dataUserClaimInfo.boat}
+Progress :  ${resultWhenClaim.progress}
+Config : ( Auto Transfer : ${autoTransferStatus}, Auto Upgrade : ${autoUpgradeStatus} )
+Status : ${chalk.yellow('On Progress')}
+        `,
+                });
+            }
+        } catch (error) {
+            console.log('Ada masalah coba lagi, delay dulu....');
+            await delay(5000)
+        }
+
+    }
+
+
 })();
